@@ -2,30 +2,24 @@ from flask import Flask, render_template, request, jsonify
 from ultralytics import YOLO
 from werkzeug.utils import secure_filename
 from PIL import Image
+import torch
 import os
 import uuid
 import time
 
 
-# ============================================================
-# APPLICATION
-# ============================================================
+# ==================================================
+# Flask application
+# ==================================================
 
 app = Flask(__name__)
 
 
-# ============================================================
-# BASE DIRECTORY
-# ============================================================
+# ==================================================
+# Paths
+# ==================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.abspath(__file__)
-)
-
-
-# ============================================================
-# PATHS
-# ============================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_PATH = os.path.join(
     BASE_DIR,
@@ -52,9 +46,9 @@ SAMPLE_FOLDER = os.path.join(
 )
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
+# ==================================================
+# Configuration
+# ==================================================
 
 ALLOWED_EXTENSIONS = {
     "jpg",
@@ -65,130 +59,100 @@ ALLOWED_EXTENSIONS = {
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-app.config[
-    "MAX_CONTENT_LENGTH"
-] = MAX_FILE_SIZE
+app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 
 
-# ============================================================
-# DIRECTORIES
-# ============================================================
+# ==================================================
+# Create required folders
+# ==================================================
 
-os.makedirs(
-    UPLOAD_FOLDER,
-    exist_ok=True
-)
-
-os.makedirs(
-    RESULT_FOLDER,
-    exist_ok=True
-)
-
-os.makedirs(
-    SAMPLE_FOLDER,
-    exist_ok=True
-)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(SAMPLE_FOLDER, exist_ok=True)
 
 
-# ============================================================
-# MODEL
-# ============================================================
+# ==================================================
+# CPU optimization
+# ==================================================
+
+# Render Free has a very small CPU allocation.
+# Limit PyTorch to one CPU thread.
+try:
+    torch.set_num_threads(1)
+except Exception:
+    pass
+
+try:
+    torch.set_num_interop_threads(1)
+except Exception:
+    pass
+
+
+# ==================================================
+# Load YOLO model
+# ==================================================
 
 print("=" * 60)
 print("POTHOLE DETECTION")
 print("=" * 60)
 
-print(
-    "Loading fine-tuned YOLOv8 model..."
-)
+print("Loading fine-tuned YOLOv8 model...")
+print("Model:", MODEL_PATH)
 
-print(
-    "Model:",
-    MODEL_PATH
-)
-
-
-if not os.path.exists(
-    MODEL_PATH
-):
-
+if not os.path.exists(MODEL_PATH):
     raise FileNotFoundError(
         f"Model not found: {MODEL_PATH}"
     )
 
+model = YOLO(MODEL_PATH)
 
-model = YOLO(
-    MODEL_PATH
-)
-
-
-print(
-    "Model loaded successfully."
-)
-
-print(
-    "Classes:",
-    model.names
-)
-
+print("Model loaded successfully.")
+print("Classes:", model.names)
+print("Device: CPU")
+print("Image size: 416")
 print("=" * 60)
 
 
-# ============================================================
-# HELPERS
-# ============================================================
+# ==================================================
+# Utility functions
+# ==================================================
 
 def allowed_file(filename):
-
+    """
+    Check whether an uploaded file has an allowed extension.
+    """
     return (
         "." in filename
-        and filename.rsplit(
-            ".",
-            1
-        )[1].lower()
+        and filename.rsplit(".", 1)[1].lower()
         in ALLOWED_EXTENSIONS
     )
 
 
 def get_samples():
+    """
+    Return all valid sample images from static/samples.
+    """
 
     samples = []
 
-
-    if not os.path.exists(
-        SAMPLE_FOLDER
-    ):
-
+    if not os.path.exists(SAMPLE_FOLDER):
         return samples
 
+    for filename in sorted(os.listdir(SAMPLE_FOLDER)):
 
-    for filename in sorted(
-        os.listdir(
-            SAMPLE_FOLDER
-        )
-    ):
-
-        if allowed_file(
-            filename
-        ):
+        if allowed_file(filename):
 
             samples.append({
-
-                "name":
-                    filename,
-
-                "url":
-                    f"/static/samples/{filename}"
-
+                "name": filename,
+                "url": f"/static/samples/{filename}"
             })
-
 
     return samples
 
 
-# ============================================================
-# DETECTION
-# ============================================================
+# ==================================================
+# YOLO detection
+# ==================================================
 
 def run_detection(
     image_path,
@@ -197,208 +161,201 @@ def run_detection(
 
     start_time = time.time()
 
+    print("-" * 60)
+    print("Starting prediction")
+    print("Image:", image_path)
+    print("Confidence:", confidence_threshold)
 
-    results = model.predict(
+    try:
 
-        source=image_path,
+        results = model.predict(
+            source=image_path,
 
-        conf=confidence_threshold,
+            # Lower resolution for Render Free.
+            # This reduces CPU and RAM requirements.
+            imgsz=416,
 
-        imgsz=640,
+            # Explicitly force CPU.
+            device="cpu",
 
-        save=False,
+            # CPU does not use half precision.
+            half=False,
 
-        verbose=False
+            conf=confidence_threshold,
 
-    )
+            # Keep inference lightweight.
+            max_det=20,
 
+            save=False,
+            verbose=False
+        )
 
-    result = results[0]
+        result = results[0]
 
+        print("YOLO inference completed.")
 
-    # ========================================================
-    # ANNOTATED IMAGE
-    # ========================================================
+        # --------------------------------------------------
+        # Save annotated result
+        # --------------------------------------------------
 
-    output_name = (
-        f"result_{uuid.uuid4().hex}.jpg"
-    )
+        output_name = (
+            f"result_{uuid.uuid4().hex}.jpg"
+        )
 
+        output_path = os.path.join(
+            RESULT_FOLDER,
+            output_name
+        )
 
-    output_path = os.path.join(
-        RESULT_FOLDER,
-        output_name
-    )
+        annotated = result.plot()
 
+        # YOLO returns BGR numpy image.
+        # Convert to RGB before PIL saving.
+        Image.fromarray(
+            annotated[:, :, ::-1]
+        ).save(
+            output_path,
+            quality=90,
+            optimize=True
+        )
 
-    annotated = result.plot()
+        # --------------------------------------------------
+        # Extract detections
+        # --------------------------------------------------
 
+        detections = []
 
-    Image.fromarray(
-        annotated[:, :, ::-1]
-    ).save(
-        output_path,
-        quality=95
-    )
+        if result.boxes is not None:
 
+            for box in result.boxes:
 
-    # ========================================================
-    # DETECTIONS
-    # ========================================================
+                confidence = float(
+                    box.conf[0]
+                )
 
-    detections = []
+                class_id = int(
+                    box.cls[0]
+                )
 
+                class_name = model.names[
+                    class_id
+                ]
 
-    if result.boxes is not None:
+                coordinates = (
+                    box.xyxy[0]
+                    .tolist()
+                )
 
-        for box in result.boxes:
+                detections.append({
 
-            confidence = float(
-                box.conf[0]
-            )
+                    "class": class_name,
 
-
-            class_id = int(
-                box.cls[0]
-            )
-
-
-            class_name = model.names[
-                class_id
-            ]
-
-
-            coordinates = (
-                box.xyxy[0]
-                .tolist()
-            )
-
-
-            detections.append({
-
-                "class":
-                    class_name,
-
-                "confidence":
-                    round(
+                    "confidence": round(
                         confidence * 100,
                         2
                     ),
 
-                "box": [
-                    round(
-                        value,
-                        2
-                    )
-                    for value in coordinates
-                ]
+                    "box": [
+                        round(value, 2)
+                        for value in coordinates
+                    ]
+                })
 
-            })
+        # Highest confidence first.
+        detections.sort(
+            key=lambda item: item["confidence"],
+            reverse=True
+        )
 
+        # --------------------------------------------------
+        # Statistics
+        # --------------------------------------------------
 
-    detections.sort(
-        key=lambda item:
-            item["confidence"],
-        reverse=True
-    )
+        count = len(detections)
 
+        if count > 0:
 
-    # ========================================================
-    # SUMMARY
-    # ========================================================
+            confidences = [
+                item["confidence"]
+                for item in detections
+            ]
 
-    count = len(
-        detections
-    )
+            average_confidence = round(
+                sum(confidences)
+                / len(confidences),
+                2
+            )
 
+            highest_confidence = max(
+                confidences
+            )
 
-    if count:
+        else:
 
-        confidences = [
+            average_confidence = 0
+            highest_confidence = 0
 
-            item["confidence"]
-
-            for item in detections
-
-        ]
-
-
-        average_confidence = round(
-
-            sum(confidences)
-            /
-            len(confidences),
-
+        processing_time = round(
+            time.time() - start_time,
             2
-
         )
 
-
-        highest_confidence = max(
-            confidences
+        print(
+            f"Detections: {count}"
         )
 
-    else:
+        print(
+            f"Processing time: "
+            f"{processing_time}s"
+        )
 
-        average_confidence = 0
+        print("Prediction completed.")
+        print("-" * 60)
 
-        highest_confidence = 0
+        return {
 
+            "result_image":
+                "/static/results/"
+                + output_name,
 
-    processing_time = round(
+            "detections":
+                detections,
 
-        time.time()
-        -
-        start_time,
+            "count":
+                count,
 
-        2
+            "average_confidence":
+                average_confidence,
 
-    )
+            "highest_confidence":
+                highest_confidence,
 
+            "processing_time":
+                processing_time
+        }
 
-    return {
+    except Exception as error:
 
-        "result_image":
-            "/static/results/"
-            + output_name,
+        print("=" * 60)
+        print("PREDICTION ERROR")
+        print(repr(error))
+        print("=" * 60)
 
-        "detections":
-            detections,
-
-        "count":
-            count,
-
-        "average_confidence":
-            average_confidence,
-
-        "highest_confidence":
-            highest_confidence,
-
-        "processing_time":
-            processing_time
-
-    }
+        raise
 
 
-# ============================================================
-# HOME
-# ============================================================
+# ==================================================
+# Routes
+# ==================================================
 
 @app.route("/")
 def home():
 
     return render_template(
-
         "index.html",
-
         samples=get_samples()
-
     )
 
-
-# ============================================================
-# PREDICT
-# ============================================================
 
 @app.route(
     "/predict",
@@ -408,20 +365,17 @@ def predict():
 
     image_path = None
 
-
-    # ========================================================
-    # CONFIDENCE
-    # ========================================================
+    # --------------------------------------------------
+    # Confidence threshold
+    # --------------------------------------------------
 
     try:
 
         confidence_threshold = float(
-
             request.form.get(
                 "confidence",
                 0.25
             )
-
         )
 
     except (
@@ -431,173 +385,118 @@ def predict():
 
         confidence_threshold = 0.25
 
-
     confidence_threshold = max(
-
         0.10,
-
         min(
             confidence_threshold,
             0.90
         )
-
     )
 
-
-    # ========================================================
-    # UPLOAD
-    # ========================================================
+    # --------------------------------------------------
+    # Uploaded image
+    # --------------------------------------------------
 
     if "image" in request.files:
 
-        file = request.files[
-            "image"
-        ]
-
+        file = request.files["image"]
 
         if file.filename == "":
-
             return jsonify({
-
                 "error":
                     "Please select an image."
-
             }), 400
-
 
         if not allowed_file(
             file.filename
         ):
-
             return jsonify({
-
                 "error":
                     "Please use JPG, JPEG, PNG or WEBP."
-
             }), 400
-
 
         original_name = secure_filename(
             file.filename
         )
 
-
         unique_name = (
-
             f"{uuid.uuid4().hex}_"
             f"{original_name}"
-
         )
-
 
         image_path = os.path.join(
-
             UPLOAD_FOLDER,
-
             unique_name
-
         )
 
+        file.save(image_path)
 
-        file.save(
-            image_path
-        )
+    # --------------------------------------------------
+    # Sample image
+    # --------------------------------------------------
 
-
-    # ========================================================
-    # SAMPLE
-    # ========================================================
-
-    elif request.form.get(
-        "sample"
-    ):
+    elif request.form.get("sample"):
 
         sample_name = os.path.basename(
-
-            request.form.get(
-                "sample"
-            )
-
+            request.form.get("sample")
         )
-
 
         candidate = os.path.join(
-
             SAMPLE_FOLDER,
-
             sample_name
-
         )
 
-
-        if not os.path.exists(
-            candidate
-        ):
+        if not os.path.exists(candidate):
 
             return jsonify({
-
                 "error":
                     "Selected sample was not found."
-
             }), 404
-
 
         image_path = candidate
 
-
-    # ========================================================
-    # NOTHING
-    # ========================================================
+    # --------------------------------------------------
+    # No image
+    # --------------------------------------------------
 
     else:
 
         return jsonify({
-
             "error":
                 "Please upload an image or select a sample."
-
         }), 400
 
-
-    # ========================================================
-    # RUN MODEL
-    # ========================================================
+    # --------------------------------------------------
+    # Run detection
+    # --------------------------------------------------
 
     try:
 
         output = run_detection(
-
             image_path,
-
             confidence_threshold
-
         )
 
-
-        return jsonify(
-            output
-        )
-
+        return jsonify(output)
 
     except Exception as error:
 
         print(
             "Prediction error:",
-            error
+            repr(error)
         )
 
-
         return jsonify({
-
             "error":
-                "Prediction failed. Please try another image."
-
+                "Prediction failed. "
+                "The server could not complete "
+                "YOLO inference."
         }), 500
 
 
-# ============================================================
-# HEALTH
-# ============================================================
+# ==================================================
+# Health check
+# ==================================================
 
 @app.route("/health")
 def health():
@@ -608,23 +507,51 @@ def health():
             "healthy",
 
         "model":
-            "YOLOv8 fine-tuned for pothole detection"
+            "YOLOv8 fine-tuned for pothole detection",
 
+        "device":
+            "cpu",
+
+        "image_size":
+            416
     })
 
 
-# ============================================================
-# RUN
-# ============================================================
+# ==================================================
+# File too large
+# ==================================================
+
+@app.errorhandler(413)
+def file_too_large(error):
+
+    return jsonify({
+        "error":
+            "Image is too large. "
+            "Maximum size is 10 MB."
+    }), 413
+
+
+# ==================================================
+# General server error
+# ==================================================
+
+@app.errorhandler(500)
+def internal_server_error(error):
+
+    return jsonify({
+        "error":
+            "Internal server error."
+    }), 500
+
+
+# ==================================================
+# Local development
+# ==================================================
 
 if __name__ == "__main__":
 
     app.run(
-
         host="0.0.0.0",
-
         port=7860,
-
         debug=False
-
     )

@@ -1,937 +1,762 @@
+// ============================================================
+// POTHOLE DETECTION - FRONTEND
+// ============================================================
+
 document.addEventListener("DOMContentLoaded", () => {
 
+    // ========================================================
+    // ELEMENTS
+    // ========================================================
 
-    /* =====================================================
-       ELEMENTS
-    ====================================================== */
+    const imageInput = document.getElementById("imageInput");
+    const browseButton = document.getElementById("browseButton");
+    const dropZone = document.getElementById("dropZone");
 
-    const imageInput =
-        document.getElementById("imageInput");
+    const uploadPlaceholder = document.getElementById("uploadPlaceholder");
+    const previewContainer = document.getElementById("previewContainer");
+    const previewImage = document.getElementById("previewImage");
+    const fileName = document.getElementById("fileName");
+    const removeImage = document.getElementById("removeImage");
 
-    const browseButton =
-        document.getElementById("browseButton");
+    const confidenceSlider = document.getElementById("confidenceSlider");
+    const confidenceValue = document.getElementById("confidenceValue");
 
-    const dropZone =
-        document.getElementById("dropZone");
+    const analyzeButton = document.getElementById("analyzeButton");
+    const analyzeText = document.getElementById("analyzeText");
+    const loadingSpinner = document.getElementById("loadingSpinner");
 
-    const uploadPlaceholder =
-        document.getElementById("uploadPlaceholder");
+    const errorMessage = document.getElementById("errorMessage");
 
-    const previewContainer =
-        document.getElementById("previewContainer");
+    const resultsSection = document.getElementById("resultsSection");
+    const resultImage = document.getElementById("resultImage");
+    const downloadButton = document.getElementById("downloadButton");
 
-    const previewImage =
-        document.getElementById("previewImage");
+    const detectionCount = document.getElementById("detectionCount");
+    const averageConfidence = document.getElementById("averageConfidence");
+    const highestConfidence = document.getElementById("highestConfidence");
+    const processingTime = document.getElementById("processingTime");
+    const detectionList = document.getElementById("detectionList");
+    const detectionBadge = document.getElementById("detectionBadge");
 
-    const fileName =
-        document.getElementById("fileName");
+    const analyzeAnother = document.getElementById("analyzeAnother");
 
-    const removeImage =
-        document.getElementById("removeImage");
+    const startInspection = document.getElementById("startInspection");
+    const viewSamples = document.getElementById("viewSamples");
 
-    const analyzeButton =
-        document.getElementById("analyzeButton");
+    const navItems = document.querySelectorAll(".nav-item");
+    const sampleButtons = document.querySelectorAll(".sample-card");
 
-    const analyzeText =
-        document.getElementById("analyzeText");
-
-    const loadingSpinner =
-        document.getElementById("loadingSpinner");
-
-    const errorMessage =
-        document.getElementById("errorMessage");
-
-    const confidenceSlider =
-        document.getElementById("confidenceSlider");
-
-    const confidenceValue =
-        document.getElementById("confidenceValue");
-
-    const resultsSection =
-        document.getElementById("resultsSection");
-
-    const resultImage =
-        document.getElementById("resultImage");
-
-    const downloadButton =
-        document.getElementById("downloadButton");
-
-    const detectionCount =
-        document.getElementById("detectionCount");
-
-    const detectionBadge =
-        document.getElementById("detectionBadge");
-
-    const averageConfidence =
-        document.getElementById("averageConfidence");
-
-    const highestConfidence =
-        document.getElementById("highestConfidence");
-
-    const processingTime =
-        document.getElementById("processingTime");
-
-    const detectionList =
-        document.getElementById("detectionList");
-
-    const analyzeAnother =
-        document.getElementById("analyzeAnother");
-
-    const startInspection =
-        document.getElementById("startInspection");
-
-    const viewSamples =
-        document.getElementById("viewSamples");
-
-
-    /* =====================================================
-       STATE
-    ====================================================== */
+    // ========================================================
+    // STATE
+    // ========================================================
 
     let selectedFile = null;
-
     let selectedSample = null;
 
+    // ========================================================
+    // BASIC DEBUG
+    // ========================================================
 
-    /* =====================================================
-       CONFIG
-    ====================================================== */
+    console.log("Pothole Detection frontend loaded successfully.");
 
-    const allowedTypes = [
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/webp"
-    ];
+    // ========================================================
+    // HELPERS
+    // ========================================================
 
-    const maxFileSize =
-        10 * 1024 * 1024;
-
-
-    /* =====================================================
-       HERO BUTTONS
-    ====================================================== */
-
-    startInspection.addEventListener(
-        "click",
-        () => {
-
-            document
-                .getElementById("inspect")
-                .scrollIntoView({
-                    behavior: "smooth"
-                });
-
+    function showError(message) {
+        if (!errorMessage) {
+            alert(message);
+            return;
         }
-    );
 
+        errorMessage.textContent = message;
+        errorMessage.classList.remove("hidden");
+        errorMessage.style.display = "block";
+    }
 
-    viewSamples.addEventListener(
-        "click",
-        () => {
-
-            document
-                .getElementById("samples")
-                .scrollIntoView({
-                    behavior: "smooth"
-                });
-
+    function hideError() {
+        if (!errorMessage) {
+            return;
         }
-    );
 
+        errorMessage.textContent = "";
+        errorMessage.classList.add("hidden");
+        errorMessage.style.display = "none";
+    }
 
-    /* =====================================================
-       CONFIDENCE
-    ====================================================== */
+    function scrollToSection(id) {
+        const section = document.getElementById(id);
 
-    confidenceSlider.addEventListener(
-        "input",
-        () => {
-
-            confidenceValue.textContent =
-                confidenceSlider.value + "%";
-
+        if (section) {
+            section.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
         }
-    );
+    }
 
-
-    /* =====================================================
-       BROWSE
-    ====================================================== */
-
-    browseButton.addEventListener(
-        "click",
-        event => {
-
-            event.stopPropagation();
-
-            imageInput.click();
-
+    function setLoading(loading) {
+        if (!analyzeButton) {
+            return;
         }
-    );
 
+        if (loading) {
+            analyzeButton.disabled = true;
 
-    /* =====================================================
-       DROP ZONE CLICK
-    ====================================================== */
-
-    dropZone.addEventListener(
-        "click",
-        event => {
-
-            if (
-                event.target.closest(
-                    "#removeImage"
-                )
-            ) {
-                return;
+            if (analyzeText) {
+                analyzeText.textContent = "Checking...";
             }
 
-            imageInput.click();
+            if (loadingSpinner) {
+                loadingSpinner.classList.remove("hidden");
+                loadingSpinner.style.display = "inline-block";
+            }
+        } else {
+            analyzeButton.disabled = false;
 
-        }
-    );
-
-
-    /* =====================================================
-       FILE INPUT
-    ====================================================== */
-
-    imageInput.addEventListener(
-        "change",
-        () => {
-
-            const file =
-                imageInput.files[0];
-
-            if (file) {
-
-                handleFile(file);
-
+            if (analyzeText) {
+                analyzeText.textContent = "Check for potholes";
             }
 
+            if (loadingSpinner) {
+                loadingSpinner.classList.add("hidden");
+                loadingSpinner.style.display = "none";
+            }
         }
-    );
+    }
 
+    function updateConfidence() {
+        if (!confidenceSlider || !confidenceValue) {
+            return;
+        }
 
-    /* =====================================================
-       VALIDATE FILE
-    ====================================================== */
+        const value = Number(confidenceSlider.value);
+
+        confidenceValue.textContent = `${value}%`;
+    }
+
+    // ========================================================
+    // CLEAR CURRENT IMAGE
+    // ========================================================
+
+    function clearSelection() {
+        selectedFile = null;
+        selectedSample = null;
+
+        if (imageInput) {
+            imageInput.value = "";
+        }
+
+        if (previewImage) {
+            previewImage.removeAttribute("src");
+        }
+
+        if (fileName) {
+            fileName.textContent = "";
+        }
+
+        if (previewContainer) {
+            previewContainer.classList.add("hidden");
+            previewContainer.style.display = "none";
+        }
+
+        if (uploadPlaceholder) {
+            uploadPlaceholder.classList.remove("hidden");
+            uploadPlaceholder.style.display = "";
+        }
+
+        if (dropZone) {
+            dropZone.classList.remove("has-image");
+        }
+    }
+
+    // ========================================================
+    // FILE VALIDATION
+    // ========================================================
 
     function validateFile(file) {
-
-        if (
-            !allowedTypes.includes(
-                file.type
-            )
-        ) {
-
-            showError(
-                "Please choose a JPG, JPEG, PNG or WEBP image."
-            );
-
+        if (!file) {
             return false;
         }
 
+        const allowedTypes = [
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+        ];
 
-        if (
-            file.size > maxFileSize
-        ) {
+        const maxSize = 10 * 1024 * 1024;
 
-            showError(
-                "The image must be smaller than 10 MB."
-            );
-
+        if (!allowedTypes.includes(file.type)) {
+            showError("Please use a JPG, JPEG, PNG or WEBP image.");
             return false;
         }
 
+        if (file.size > maxSize) {
+            showError("Image is too large. Maximum size is 10 MB.");
+            return false;
+        }
 
         return true;
     }
 
-
-    /* =====================================================
-       HANDLE FILE
-    ====================================================== */
+    // ========================================================
+    // HANDLE FILE
+    // ========================================================
 
     function handleFile(file) {
-
-        clearError();
-
-
-        if (
-            !validateFile(file)
-        ) {
-
-            imageInput.value = "";
-
+        if (!file) {
             return;
         }
 
+        hideError();
+
+        if (!validateFile(file)) {
+            return;
+        }
 
         selectedFile = file;
-
         selectedSample = null;
 
+        const reader = new FileReader();
 
-        const reader =
-            new FileReader();
+        reader.onload = function (event) {
 
-
-        reader.onload =
-            event => {
-
-                previewImage.src =
-                    event.target.result;
-
-                fileName.textContent =
-                    file.name;
-
-                uploadPlaceholder.classList.add(
-                    "hidden"
-                );
-
-                previewContainer.classList.remove(
-                    "hidden"
-                );
-
-            };
-
-
-        reader.readAsDataURL(file);
-
-    }
-
-
-    /* =====================================================
-       REMOVE
-    ====================================================== */
-
-    removeImage.addEventListener(
-        "click",
-        event => {
-
-            event.stopPropagation();
-
-            resetInput();
-
-        }
-    );
-
-
-    /* =====================================================
-       DRAG AND DROP
-    ====================================================== */
-
-    [
-        "dragenter",
-        "dragover"
-    ].forEach(
-        name => {
-
-            dropZone.addEventListener(
-                name,
-                event => {
-
-                    event.preventDefault();
-
-                    event.stopPropagation();
-
-                    dropZone.classList.add(
-                        "dragover"
-                    );
-
-                }
-            );
-
-        }
-    );
-
-
-    [
-        "dragleave",
-        "drop"
-    ].forEach(
-        name => {
-
-            dropZone.addEventListener(
-                name,
-                event => {
-
-                    event.preventDefault();
-
-                    event.stopPropagation();
-
-                    dropZone.classList.remove(
-                        "dragover"
-                    );
-
-                }
-            );
-
-        }
-    );
-
-
-    dropZone.addEventListener(
-        "drop",
-        event => {
-
-            const files =
-                event.dataTransfer.files;
-
-            if (
-                files.length
-            ) {
-
-                handleFile(
-                    files[0]
-                );
-
+            if (previewImage) {
+                previewImage.src = event.target.result;
             }
 
-        }
-    );
+            if (fileName) {
+                fileName.textContent = file.name;
+            }
 
+            if (previewContainer) {
+                previewContainer.classList.remove("hidden");
+                previewContainer.style.display = "block";
+            }
 
-    /* =====================================================
-       SAMPLE IMAGES
-    ====================================================== */
+            if (uploadPlaceholder) {
+                uploadPlaceholder.classList.add("hidden");
+                uploadPlaceholder.style.display = "none";
+            }
 
-    const sampleCards =
-        document.querySelectorAll(
-            ".sample-card"
-        );
+            if (dropZone) {
+                dropZone.classList.add("has-image");
+            }
+        };
 
+        reader.onerror = function () {
+            showError("Could not read the selected image.");
+        };
 
-    sampleCards.forEach(
-        card => {
+        reader.readAsDataURL(file);
+    }
 
-            card.addEventListener(
-                "click",
-                () => {
+    // ========================================================
+    // BROWSE BUTTON
+    // ========================================================
 
-                    const sample =
-                        card.dataset.sample;
+    if (browseButton && imageInput) {
+        browseButton.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
 
-                    if (!sample) {
-                        return;
-                    }
+            imageInput.click();
+        });
+    }
 
+    // ========================================================
+    // FILE INPUT
+    // ========================================================
 
-                    selectedSample =
-                        sample;
+    if (imageInput) {
+        imageInput.addEventListener("change", function (event) {
 
-                    selectedFile =
-                        null;
+            const file = event.target.files
+                ? event.target.files[0]
+                : null;
 
-                    imageInput.value =
-                        "";
+            handleFile(file);
+        });
+    }
 
+    // ========================================================
+    // DROP ZONE CLICK
+    // ========================================================
 
-                    const image =
-                        card.querySelector(
-                            "img"
-                        );
+    if (dropZone && imageInput) {
+        dropZone.addEventListener("click", function (event) {
 
-
-                    if (image) {
-
-                        previewImage.src =
-                            image.src;
-
-                    }
-
-
-                    fileName.textContent =
-                        sample;
-
-
-                    uploadPlaceholder.classList.add(
-                        "hidden"
-                    );
-
-                    previewContainer.classList.remove(
-                        "hidden"
-                    );
-
-
-                    document
-                        .getElementById("inspect")
-                        .scrollIntoView({
-                            behavior: "smooth"
-                        });
-
-                }
-            );
-
-        }
-    );
-
-
-    /* =====================================================
-       ANALYZE
-    ====================================================== */
-
-    analyzeButton.addEventListener(
-        "click",
-        async () => {
-
-            clearError();
-
-
-            if (
-                !selectedFile &&
-                !selectedSample
-            ) {
-
-                showError(
-                    "Choose an image before checking for potholes."
-                );
-
+            // Do not trigger file picker when clicking buttons
+            if (event.target.closest("button")) {
                 return;
             }
 
+            imageInput.click();
+        });
+    }
+
+    // ========================================================
+    // DRAG OVER
+    // ========================================================
+
+    if (dropZone) {
+        dropZone.addEventListener("dragover", function (event) {
+            event.preventDefault();
+
+            dropZone.classList.add("dragging");
+        });
+    }
+
+    // ========================================================
+    // DRAG LEAVE
+    // ========================================================
+
+    if (dropZone) {
+        dropZone.addEventListener("dragleave", function () {
+            dropZone.classList.remove("dragging");
+        });
+    }
+
+    // ========================================================
+    // DROP
+    // ========================================================
+
+    if (dropZone) {
+        dropZone.addEventListener("drop", function (event) {
+
+            event.preventDefault();
+
+            dropZone.classList.remove("dragging");
+
+            const files = event.dataTransfer.files;
+
+            if (!files || !files.length) {
+                return;
+            }
+
+            handleFile(files[0]);
+        });
+    }
+
+    // ========================================================
+    // REMOVE IMAGE
+    // ========================================================
+
+    if (removeImage) {
+        removeImage.addEventListener("click", function (event) {
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            clearSelection();
+            hideError();
+        });
+    }
+
+    // ========================================================
+    // CONFIDENCE SLIDER
+    // ========================================================
+
+    if (confidenceSlider) {
+        confidenceSlider.addEventListener("input", updateConfidence);
+
+        updateConfidence();
+    }
+
+    // ========================================================
+    // HOME - CHECK AN IMAGE
+    // ========================================================
+
+    if (startInspection) {
+        startInspection.addEventListener("click", function () {
+            scrollToSection("inspect");
+        });
+    }
+
+    // ========================================================
+    // HOME - VIEW SAMPLES
+    // ========================================================
+
+    if (viewSamples) {
+        viewSamples.addEventListener("click", function () {
+            scrollToSection("samples");
+        });
+    }
+
+    // ========================================================
+    // SAMPLE BUTTONS
+    // ========================================================
+
+    sampleButtons.forEach(function (button) {
+
+        button.addEventListener("click", function () {
+
+            hideError();
+
+            selectedFile = null;
+
+            selectedSample = button.dataset.sample || null;
+
+            if (!selectedSample) {
+                showError("This sample image could not be selected.");
+                return;
+            }
+
+            const imageUrl =
+                button.dataset.image ||
+                `/static/samples/${encodeURIComponent(selectedSample)}`;
+
+            if (imageInput) {
+                imageInput.value = "";
+            }
+
+            if (previewImage) {
+                previewImage.src = imageUrl;
+            }
+
+            if (fileName) {
+                fileName.textContent = selectedSample;
+            }
+
+            if (previewContainer) {
+                previewContainer.classList.remove("hidden");
+                previewContainer.style.display = "block";
+            }
+
+            if (uploadPlaceholder) {
+                uploadPlaceholder.classList.add("hidden");
+                uploadPlaceholder.style.display = "none";
+            }
+
+            if (dropZone) {
+                dropZone.classList.add("has-image");
+            }
+
+            scrollToSection("inspect");
+        });
+    });
+
+    // ========================================================
+    // ANALYZE / PREDICT
+    // ========================================================
+
+    if (analyzeButton) {
+
+        analyzeButton.addEventListener("click", async function () {
+
+            hideError();
+
+            if (!selectedFile && !selectedSample) {
+                showError("Please upload an image or select a sample first.");
+                scrollToSection("inspect");
+                return;
+            }
+
+            const formData = new FormData();
+
+            const confidence = confidenceSlider
+                ? Number(confidenceSlider.value) / 100
+                : 0.25;
+
+            formData.append("confidence", confidence);
+
+            if (selectedFile) {
+                formData.append("image", selectedFile);
+            } else {
+                formData.append("sample", selectedSample);
+            }
 
             setLoading(true);
 
-
-            const formData =
-                new FormData();
-
-
-            const confidence =
-                parseInt(
-                    confidenceSlider.value
-                ) / 100;
-
-
-            formData.append(
-                "confidence",
-                confidence.toString()
-            );
-
-
-            if (selectedFile) {
-
-                formData.append(
-                    "image",
-                    selectedFile
-                );
-
-            } else {
-
-                formData.append(
-                    "sample",
-                    selectedSample
-                );
-
-            }
-
-
             try {
 
-                const response =
-                    await fetch(
-                        "/predict",
-                        {
-                            method: "POST",
-                            body: formData
-                        }
-                    );
+                const response = await fetch("/predict", {
+                    method: "POST",
+                    body: formData
+                });
 
+                const responseText = await response.text();
 
-                const data =
-                    await response.json();
+                let data = null;
 
+                if (responseText) {
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (jsonError) {
 
-                if (!response.ok) {
+                        console.error(
+                            "Server returned non-JSON response:",
+                            responseText
+                        );
 
-                    throw new Error(
-                        data.error ||
-                        "Unable to analyze this image."
-                    );
-
+                        throw new Error(
+                            "The server returned an invalid response."
+                        );
+                    }
                 }
 
+                if (!response.ok) {
+                    throw new Error(
+                        data?.error ||
+                        `Server error (${response.status}).`
+                    );
+                }
 
-                displayResults(
-                    data
-                );
+                if (!data) {
+                    throw new Error(
+                        "The server returned an empty response."
+                    );
+                }
 
+                displayResults(data);
 
             } catch (error) {
 
-                console.error(
-                    error
-                );
+                console.error("Prediction error:", error);
 
                 showError(
                     error.message ||
-                    "Something went wrong while checking the image."
+                    "Prediction failed. Please try again."
                 );
 
             } finally {
 
                 setLoading(false);
-
             }
+        });
+    }
 
-        }
-    );
-
-
-    /* =====================================================
-       DISPLAY RESULTS
-    ====================================================== */
+    // ========================================================
+    // DISPLAY RESULTS
+    // ========================================================
 
     function displayResults(data) {
 
-        resultImage.src =
-            data.result_image +
-            "?t=" +
-            Date.now();
+        console.log("Prediction result:", data);
 
+        if (resultImage && data.result_image) {
+            resultImage.src =
+                `${data.result_image}?t=${Date.now()}`;
 
-        downloadButton.href =
-            data.result_image;
-
-
-        detectionCount.textContent =
-            data.count;
-
-
-        detectionBadge.textContent =
-            data.count;
-
-
-        averageConfidence.textContent =
-            data.average_confidence +
-            "%";
-
-
-        highestConfidence.textContent =
-            data.highest_confidence +
-            "%";
-
-
-        processingTime.textContent =
-            data.processing_time +
-            "s";
-
-
-        renderDetections(
-            data.detections
-        );
-
-
-        resultsSection.classList.remove(
-            "hidden"
-        );
-
-
-        resultsSection.scrollIntoView({
-            behavior: "smooth",
-            block: "start"
-        });
-
-    }
-
-
-    /* =====================================================
-       DETECTIONS
-    ====================================================== */
-
-    function renderDetections(
-        detections
-    ) {
-
-        detectionList.innerHTML = "";
-
-
-        if (
-            !detections ||
-            detections.length === 0
-        ) {
-
-            detectionList.innerHTML = `
-                <div class="no-detection">
-                    No potholes were detected at this confidence level.
-                </div>
-            `;
-
-            return;
+            resultImage.style.display = "block";
         }
 
+        if (detectionCount) {
+            detectionCount.textContent =
+                data.count ?? 0;
+        }
 
-        detections.forEach(
-            (item, index) => {
+        if (detectionBadge) {
+            detectionBadge.textContent =
+                data.count ?? 0;
+        }
 
-                const row =
-                    document.createElement(
-                        "div"
-                    );
+        if (averageConfidence) {
+            averageConfidence.textContent =
+                `${Number(
+                    data.average_confidence ?? 0
+                ).toFixed(2)}%`;
+        }
 
+        if (highestConfidence) {
+            highestConfidence.textContent =
+                `${Number(
+                    data.highest_confidence ?? 0
+                ).toFixed(2)}%`;
+        }
 
-                row.className =
-                    "detection-row";
+        if (processingTime) {
+            processingTime.textContent =
+                `${Number(
+                    data.processing_time ?? 0
+                ).toFixed(2)}s`;
+        }
 
+        // ====================================================
+        // INDIVIDUAL DETECTIONS
+        // ====================================================
 
-                row.innerHTML = `
+        if (detectionList) {
 
-                    <div class="detection-name">
+            detectionList.innerHTML = "";
 
-                        <span class="detection-dot"></span>
+            const detections = Array.isArray(data.detections)
+                ? data.detections
+                : [];
 
-                        <span>
-                            Pothole ${index + 1}
-                        </span>
+            if (detections.length === 0) {
 
+                detectionList.innerHTML = `
+                    <div class="empty-detection">
+                        No potholes detected above the selected confidence.
                     </div>
-
-                    <span class="detection-confidence">
-                        ${item.confidence}%
-                    </span>
-
                 `;
 
+            } else {
 
-                detectionList.appendChild(
-                    row
-                );
+                detections.forEach(function (detection, index) {
 
+                    const item =
+                        document.createElement("div");
+
+                    item.className = "detection-item";
+
+                    const className =
+                        escapeHtml(
+                            detection.class || "Pothole"
+                        );
+
+                    const confidence =
+                        Number(
+                            detection.confidence ?? 0
+                        ).toFixed(2);
+
+                    item.innerHTML = `
+                        <div class="detection-dot"></div>
+
+                        <div class="detection-info">
+                            <strong>
+                                ${className} ${index + 1}
+                            </strong>
+                        </div>
+
+                        <div class="detection-confidence">
+                            ${confidence}%
+                        </div>
+                    `;
+
+                    detectionList.appendChild(item);
+                });
             }
-        );
-
-    }
-
-
-    /* =====================================================
-       LOADING
-    ====================================================== */
-
-    function setLoading(
-        loading
-    ) {
-
-        analyzeButton.disabled =
-            loading;
-
-
-        if (loading) {
-
-            analyzeText.textContent =
-                "Checking image...";
-
-            loadingSpinner.classList.remove(
-                "hidden"
-            );
-
-        } else {
-
-            analyzeText.textContent =
-                "Check for potholes";
-
-            loadingSpinner.classList.add(
-                "hidden"
-            );
-
         }
 
-    }
+        // ====================================================
+        // DOWNLOAD
+        // ====================================================
 
+        if (downloadButton && data.result_image) {
 
-    /* =====================================================
-       RESET
-    ====================================================== */
+            downloadButton.href = data.result_image;
 
-    function resetInput() {
+            downloadButton.download =
+                "pothole-detection-result.jpg";
+        }
 
-        selectedFile =
-            null;
+        // ====================================================
+        // SHOW RESULTS
+        // ====================================================
 
-        selectedSample =
-            null;
+        if (resultsSection) {
 
-        imageInput.value =
-            "";
+            resultsSection.classList.remove("hidden");
+            resultsSection.style.display = "block";
 
-        previewImage.src =
-            "";
+            setTimeout(function () {
 
-        fileName.textContent =
-            "";
-
-        uploadPlaceholder.classList.remove(
-            "hidden"
-        );
-
-        previewContainer.classList.add(
-            "hidden"
-        );
-
-        clearError();
-
-    }
-
-
-    /* =====================================================
-       ANALYZE ANOTHER
-    ====================================================== */
-
-    analyzeAnother.addEventListener(
-        "click",
-        () => {
-
-            resultsSection.classList.add(
-                "hidden"
-            );
-
-
-            resetInput();
-
-
-            document
-                .getElementById("inspect")
-                .scrollIntoView({
-                    behavior: "smooth"
+                resultsSection.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
                 });
 
+            }, 100);
         }
-    );
+    }
 
+    // ========================================================
+    // CHECK ANOTHER IMAGE
+    // ========================================================
 
-    /* =====================================================
-       ERRORS
-    ====================================================== */
+    if (analyzeAnother) {
 
-    function showError(
-        message
+        analyzeAnother.addEventListener("click", function () {
+
+            clearSelection();
+            hideError();
+
+            if (resultsSection) {
+                resultsSection.classList.add("hidden");
+                resultsSection.style.display = "none";
+            }
+
+            scrollToSection("inspect");
+        });
+    }
+
+    // ========================================================
+    // ESCAPE HTML
+    // ========================================================
+
+    function escapeHtml(value) {
+
+        return String(value)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    // ========================================================
+    // NAVIGATION
+    // ========================================================
+
+    navItems.forEach(function (link) {
+
+        link.addEventListener("click", function () {
+
+            navItems.forEach(function (item) {
+                item.classList.remove("active");
+            });
+
+            link.classList.add("active");
+        });
+    });
+
+    // ========================================================
+    // ACTIVE NAVIGATION ON SCROLL
+    // ========================================================
+
+    const sections =
+        document.querySelectorAll(".page-section[id]");
+
+    if (
+        sections.length &&
+        "IntersectionObserver" in window
     ) {
 
-        errorMessage.textContent =
-            message;
+        const observer =
+            new IntersectionObserver(
+                function (entries) {
 
-        errorMessage.classList.remove(
-            "hidden"
-        );
+                    entries.forEach(function (entry) {
 
-    }
+                        if (!entry.isIntersecting) {
+                            return;
+                        }
 
+                        const id = entry.target.id;
 
-    function clearError() {
+                        navItems.forEach(function (link) {
 
-        errorMessage.textContent =
-            "";
+                            const href =
+                                link.getAttribute("href");
 
-        errorMessage.classList.add(
-            "hidden"
-        );
-
-    }
-
-
-    /* =====================================================
-       NAVIGATION
-    ====================================================== */
-
-    const navItems =
-        document.querySelectorAll(
-            ".nav-item"
-        );
-
-
-    navItems.forEach(
-        item => {
-
-            item.addEventListener(
-                "click",
-                () => {
-
-                    navItems.forEach(
-                        nav =>
-                            nav.classList.remove(
-                                "active"
-                            )
-                    );
-
-
-                    item.classList.add(
-                        "active"
-                    );
-
+                            link.classList.toggle(
+                                "active",
+                                href === `#${id}`
+                            );
+                        });
+                    });
+                },
+                {
+                    threshold: 0.2
                 }
             );
 
-        }
-    );
-
-
-    /* =====================================================
-       ACTIVE NAV ON SCROLL
-    ====================================================== */
-
-    const sections =
-        document.querySelectorAll(
-            ".page-section"
-        );
-
-
-    const observer =
-        new IntersectionObserver(
-            entries => {
-
-                entries.forEach(
-                    entry => {
-
-                        if (
-                            !entry.isIntersecting
-                        ) {
-                            return;
-                        }
-
-
-                        const id =
-                            entry.target.id;
-
-
-                        const matching =
-                            document.querySelector(
-                                `.nav-item[href="#${id}"]`
-                            );
-
-
-                        if (!matching) {
-                            return;
-                        }
-
-
-                        navItems.forEach(
-                            item =>
-                                item.classList.remove(
-                                    "active"
-                                )
-                        );
-
-
-                        matching.classList.add(
-                            "active"
-                        );
-
-                    }
-                );
-
-            },
-            {
-                rootMargin:
-                    "-25% 0px -60% 0px"
-            }
-        );
-
-
-    sections.forEach(
-        section =>
-            observer.observe(section)
-    );
+        sections.forEach(function (section) {
+            observer.observe(section);
+        });
+    }
 
 });
